@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Spanish ↔ English Flashcards + Typing</title>
+<style>
+  :root{--bg:#0b0c10;--card:#111318;--ink:#edf2f7;--muted:#a0aec0;--accent:#64d6cf;--ok:#3ECF8E;--bad:#ff6b6b}
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0b0c10,#12141a);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;display:grid;place-items:center;min-height:100vh;padding:24px}
+  .app{width:min(980px,100%)}
+  h1{font-weight:800;letter-spacing:.3px;margin:0 0 16px}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  button, select {background:#1b1f2a;border:1px solid #2a3142;color:var(--ink);padding:10px 14px;border-radius:12px;cursor:pointer}
+  button:hover, select:focus{border-color:var(--accent)}
+  .stats{margin-left:auto;color:var(--muted)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 16px}
+  .card-wrap{perspective:1200px}
+  .card{position:relative;background:var(--card);border:1px solid #2a3142;border-radius:24px;min-height:300px;display:grid;place-items:center;padding:26px;transform-style:preserve-3d;transition:transform .35s ease;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+  .card.flipped{transform:rotateY(180deg)}
+  .face{position:absolute;inset:0;display:grid;place-items:center;padding:28px;backface-visibility:hidden}
+  .es{font-size:clamp(28px,5vw,42px);font-weight:800;text-align:center}
+  .en{transform:rotateY(180deg);font-size:clamp(22px,4.5vw,34px);text-align:center;color:#e6fffb}
+  /* prevent flashing the back/front when switching cards */
+  .card:not(.flipped) .en{visibility:hidden}
+  .card.flipped .es{visibility:hidden}
+  .typebox{width:100%;display:flex;gap:10px;align-items:center;margin-top:14px}
+  .typebox input{flex:1;background:#0f1420;border:1px solid #2a3142;border-radius:12px;color:var(--ink);padding:12px 14px;font-size:16px}
+  .feedback{min-height:22px;font-size:14px;margin-top:6px}
+  .ok{color:var(--ok)}
+  .bad{color:var(--bad)}
+  .small{color:var(--muted);font-size:12px}
+  .disabled{opacity:.5;pointer-events:none}
+
+  /* ===== iPad-friendly tweaks ===== */
+  :root{ --tap:44px }
+  @media (max-width: 900px){
+    body{ padding:16px }
+    .app{ width:100% }
+    .controls{ gap:8px }
+  }
+  button, select {
+    min-height: var(--tap);
+    font-size: 18px;
+    padding: 14px 16px;
+    -webkit-tap-highlight-color: rgba(255,255,255,0.1);
+    touch-action: manipulation;
+  }
+  .typebox input{
+    min-height: var(--tap);
+    font-size: 18px; /* >=16px prevents iOS zoom */
+    line-height: 1.4;
+  }
+  .card{
+    min-height: clamp(260px, 55dvh, 520px);
+    border-radius: 28px;
+  }
+  .face{ padding: 32px }
+  .es{ font-size: clamp(28px, 6.5vw, 48px) }
+  .en{ font-size: clamp(22px, 5.8vw, 40px) }
+  .controls, .row{ justify-content: center }
+  .stats{ width: 100%; text-align: center; margin-left: 0; margin-top: 6px }
+  .controls > * { flex: 0 1 auto }
+  .controls select{ max-width: 100% }
+  .typebox{ flex-wrap: nowrap }
+  #check{ flex: 0 0 auto }
+  /* Active feedback for tap */
+  button:active{ transform: translateY(1px) }
+
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>Spanish ↔ English — Flashcards & Typing</h1>
+    <div class="controls">
+      <button id="prev">⟵ Prev</button>
+      <button id="flip">Flip (Space)</button>
+      <button id="next">Next ⟶</button>
+      <button id="shuffle">Shuffle</button>
+      <select id="mode">
+        <option value="flip">Mode: Flip cards</option>
+        <option value="type">Mode: Type to answer</option>
+        <option value="mistakes">Mode: Practice mistakes</option>
+      </select>
+      <select id="direction">
+        <option value="es-en">Prompt: Spanish → English</option>
+        <option value="en-es">Prompt: English → Spanish</option>
+      </select>
+      <span class="stats" id="stats"></span>
+    </div>
+
+    <div class="row">
+      <button id="reset">Reset stats</button>
+      <button id="clearMistakes">Clear mistakes</button>
+    </div>
+
+    <div class="card-wrap">
+      <div class="card" id="card">
+        <div class="face es" id="front"></div>
+        <div class="face en" id="back"></div>
+      </div>
+    </div>
+
+    <div id="typeArea" style="display:none">
+      <div class="typebox">
+        <input id="answer" placeholder="Type your answer and press Enter or Check" autocomplete="off" />
+        <button id="check">Check</button>
+      </div>
+      <div class="feedback" id="feedback"></div>
+    </div>
+  </div>
+
+<script>
+// ---------------- Data ----------------
+// Each item: [Spanish, English]
+const BASE = [
+  // Physical description & hair/eyes
+  ["guapo/-a","good-looking"],["feo/-a","ugly"],["delgado/-a","slim / thin"],["gordo/-a","fat / overweight"],["alto/-a","tall"],["bajo/-a","short (height)"],["fuerte","strong"],["débil","weak"],["joven","young"],["mayor","older / elderly"],["grande","big"],["pequeño/-a","small"],
+  ["moreno","dark-haired / brunette"],["rubio","blond(e)"],["pelirrojo","red-haired"],["castaño","brown-haired / chestnut"],["teñido","dyed"],["corto","short (hair length)"],["largo","long (hair length)"],["liso","straight (hair)"],["rizado","curly (hair)"],["recogido","tied up / updo"],["suelto","loose / down"],["calvo/-a","bald"],["canoso/-a","gray-haired"],["tener canas","to have gray hair"],
+  ["ojos marrones","brown eyes"],["ojos azules","blue eyes"],["ojos negros","black / very dark eyes"],["ojos verdes","green eyes"],["ojos grises","gray eyes"],["nariz grande","big nose"],["nariz pequeña","small nose"],
+  // Wear / accessories
+  ["llevar una camiseta","to wear a t‑shirt"],["llevar unos pantalones","to wear pants / trousers"],["llevar un vestido","to wear a dress"],["llevar un collar","to wear a necklace"],["llevar unos pendientes","to wear earrings"],["llevar un sombrero","to wear a hat"],["coleta","ponytail"],["trenzas","braids"],["barba","beard"],["bigote","moustache"],["perilla","goatee / soul patch"],["gafas","glasses"],
+  // Personality (neg + pos)
+  ["callado/-a","quiet"],["aburrido/-a","boring"],["cerrado/-a","closed / not open-minded"],["serio/-a","serious"],["triste","sad"],["antipático/-a","unfriendly"],["egoísta","selfish"],["pesimista","pessimistic"],["tonto/-a","silly / dumb"],["introvertido/-a","introverted"],["vago/-a; perezoso/-a","lazy"],["irresponsable","irresponsible"],["tímido/-a","shy"],["nervioso/-a","nervous"],["desagradable","unpleasant"],["mentiroso/-a","liar / dishonest"],["egocéntrico/-a","self‑centered"],["maleducado/-a","rude / ill‑mannered"],
+  ["hablador/-a","talkative"],["interesante","interesting"],["divertido/-a","fun / amusing"],["abierto/-a","open / open‑minded"],["alegre","cheerful"],["simpático/-a; majo/-a","nice / friendly"],["generoso/-a","generous"],["optimista","optimistic"],["inteligente","intelligent"],["extrovertido/-a","extroverted"],["trabajador/-a","hard‑working"],["responsable","responsible"],["sociable","sociable"],["tranquilo/-a","calm"],["agradable","pleasant"],["honesto/-a; sincero/-a","honest / sincere"],["modesto/-a; humilde","modest / humble"],["educado/-a","polite / well‑mannered"],
+  // Extra terms from your list
+  ["aprendí a surfear","I learned how to surf"],["me da miedo","scary / it scares me"],["mejorarme","to get better (myself)"],["el granjero","the farmer"],["el pelo","hair"],["el pájaro","bird"],["nadie","nobody"],["el alcalde","mayor (person)"],["más o menos","more or less"],["hasta","until"],["fuimos a","we went to"],["la última vez","the last time"],["yo estaba en","I was in (location)"],["a veces","sometimes"],["tampoco","neither"],["probablemente","probably"],["tal vez","maybe"],["aún no","not yet"],["la respuesta","the answer"],["estar enojado","to be angry"],["sobre","about"],["cantar","to sing"],["abrir","to open"],["leer","to read"],["practicar","to practice"],["mirar","to watch"],["hacer","to do / to make"],["nada","anything / nothing (neg.)"],["el atardecer","sunset"],["de compras","(to go) shopping"],["de pesca","(to go) fishing"],["de fiesta","(to go) partying"],["de vacaciones","on vacation"],
+  ["de paseo","out for a stroll / out and about"],
+  ["de excursión","on an outing / on a (day) trip / hiking"],
+  ["de viaje","on a trip / traveling"],
+["vender","to sell"],["tomar","to take"],["volar","to fly"],["ir al salón de belleza","to get my hair done"],["llevar","to carry / to take / to wear"],["la veterinaria","the veterinarian / vet clinic"],["este / está","this (adj.) / is (he/she)"],["estos / estas","these"],["casarse por lo civil","to get married (civil)"],["la novia","the bride / girlfriend"],["son señores","older people"],["mío, mía / míos, mías","mine"],["tuyo, tuya / tuyos, tuyas","yours (informal)"],["suyo, suya / suyos, suyas","his / hers / yours (formal) / theirs"],["nuestro, nuestra, nuestros, nuestras","ours"],["mi, mis","my"],["tu, tus","your (informal)"],["su, sus","your / her / his / their"],["nuestro, nuestra, nuestros, nuestras","our"],["cuál / qué","which / what"],["cuántos / cuántas","how many"],["cuánto","how much"],
+  // Nouns batch
+  ["las casas","houses"],["el avión","airplane"],["los reyes","kings / royals"],["el niño","boy / child"],["las mariposas","butterflies"],["las abejas","bees"],["el despertador","alarm clock"],["las frutas","fruits"],["el payaso","clown"],["la iglesia","church"],["los astronautas","astronauts"],["la escuela","school"],["la ambulancia","ambulance"],["el perro","dog"],["el triciclo","tricycle"],["el estante","shelf"],["los árboles","trees"],["el coche","car"],["la bicicleta","bicycle"],["la pelota","ball"],["la abuela","grandmother"],["el granero","barn"],["la chica","girl"],["el helado","ice cream"],["las hojas","leaves"],["las flores","flowers"],["el pato","duck"],["el barco","boat"],["los novios","engaged couple / bride & groom"],["la cama","bed"],
+  // Misc phrases
+  ["yo hice","I did"],["fin de semana","weekend"],["descansar","to rest"],["yo voy a","I am going to"],["países nuevos","new countries"],["¿Qué significa?","what does it mean?"],["¿cómo se dice...?","how do you say...?"],["¿cómo se escribe...?","how do you write?"],["libro","book"],["página","page"],["no entiendo","I don't understand"],["palabra","word"],["tarea","homework"],["frase / oración","sentence"],["¿puedes compartir?","can you share?"],
+  // G/ J words list
+  ["águila","eagle"],["gato","cat"],["guante","glove"],["juguete","toy"],["aguja","needle"],["guitarra","guitar"],["albergue","shelter"],["manguera","hose"],["jirafa","giraffe"],["jugoso","juicy"],["hormiguero","ant hill"],["tortuga","turtle"],["guisante","pea"],["jarra","pitcher"],
+  // Saber / Conocer / Ser
+  ["yo sé","I know"],["tú sabes","you know"],["él sabe","he knows"],["nosotros sabemos","we know"],["ellas saben","they (f.) know"],["yo conozco","I know (am acquainted)"],["tú conoces","you know"],["él conoce","he knows"],["nosotras conocemos","we (f.) know"],["ellos conocen","they know"],["yo soy","I am"],["tú eres","you are"],["él / ella / ud. es","he / she / you (form.) are"],["nosotras somos","we (f.) are"],["ellos son","they are"],
+  
+  // IR — to go (all key variations)
+  ["ir", "to go"],
+  ["yendo", "going (gerund)"],
+  ["ido", "gone (past participle)"],
+  ["yo voy", "I go / I'm going"],
+  ["tú vas", "you go (informal)"],
+  ["él / ella / usted va", "he/she goes; you (formal) go"],
+  ["nosotros vamos", "we go"],
+  ["vosotros vais", "you all go (Spain)"],
+  ["ellos / ellas / ustedes van", "they go; you all go"],
+  ["yo fui", "I went"],
+  ["tú fuiste", "you went (informal)"],
+  ["él / ella / usted fue", "he/she went; you (formal) went"],
+  ["nosotros fuimos", "we went"],
+  ["vosotros fuisteis", "you all went (Spain)"],
+  ["ellos / ellas / ustedes fueron", "they went; you all went"],
+  ["yo iba", "I used to go / I was going"],
+  ["tú ibas", "you used to go / were going"],
+  ["él / ella / usted iba", "he/she used to go / was going; you (formal) used to go"],
+  ["nosotros íbamos", "we used to go / were going"],
+  ["vosotros ibais", "you all used to go (Spain)"],
+  ["ellos / ellas / ustedes iban", "they used to go / were going"],
+  ["yo iré", "I will go"],
+  ["tú irás", "you will go"],
+  ["él / ella / usted irá", "he/she will go; you (formal) will go"],
+  ["nosotros iremos", "we will go"],
+  ["vosotros iréis", "you all will go (Spain)"],
+  ["ellos / ellas / ustedes irán", "they will go; you all will go"],
+  ["yo iría", "I would go"],
+  ["tú irías", "you would go"],
+  ["él / ella / usted iría", "he/she would go; you (formal) would go"],
+  ["nosotros iríamos", "we would go"],
+  ["vosotros iríais", "you all would go (Spain)"],
+  ["ellos / ellas / ustedes irían", "they would go; you all would go"],
+  ["que yo vaya", "that I go"],
+  ["que tú vayas", "that you (informal) go"],
+  ["que él / ella / usted vaya", "that he/she go; that you (formal) go"],
+  ["que nosotros vayamos", "that we go"],
+  ["que vosotros vayáis", "that you all (Spain) go"],
+  ["que ellos / ellas / ustedes vayan", "that they go; that you all go"],
+  ["que yo fuera", "that I went / would go"],
+  ["que tú fueras", "that you went / would go"],
+  ["que él / ella / usted fuera", "that he/she/you (formal) went / would go"],
+  ["que nosotros fuéramos", "that we went / would go"],
+  ["que vosotros fuerais", "that you all (Spain) went / would go"],
+  ["que ellos / ellas / ustedes fueran", "that they/you all went / would go"],
+  ["ve", "(tú) go (affirmative)"],
+  ["vaya", "(usted) go (affirmative)"],
+  ["vamos", "let's go"],
+  ["id", "(vosotros) go (affirmative, Spain)"],
+  ["vayan", "(ustedes) go (affirmative)"],
+  ["no vayas", "don't go (tú)"],
+  ["no vaya", "don't go (usted)"],
+  ["no vayáis", "don't go (vosotros, Spain)"],
+  ["no vayan", "don't go (ustedes)"],
+  ["ir a + infinitivo", "to be going to (do something)"],
+// Food & misc
+  ["alitas de pollo","chicken wings"],["aperitivos","appetizers"],["hoy en la noche","tonight"],["celebrar","to celebrate"],["ropa rosa","pink clothes"],["hace fisicoculturismo","(he/she) is a bodybuilder"],["el ejército","army"],["un camión","truck"],["el espacio","space"],["en el gobierno","in the government"],["el estado","state / stage"],["de la tarde","in the afternoon"],["de la noche","at night (p.m.)"],["de la mañana","in the morning"],["es la / son las","it is (time)"],
+];
+
+// ---------------- State ----------------
+let deck = [...BASE];
+let i = 0; let flipped = false;
+let correct = 0, total = 0;
+let mistakes = new Set(); // key: "es|en"
+
+const els = {
+  card: q('#card'), front: q('#front'), back: q('#back'), stats: q('#stats'),
+  mode: q('#mode'), direction: q('#direction'),
+  typeArea: q('#typeArea'), answer: q('#answer'), feedback: q('#feedback')
+};
+function q(s){return document.querySelector(s)}
+const keyOf = (t)=> t[0]+'|'+t[1];
+
+// ---------------- Helpers ----------------
+function render(){
+  if(deck.length===0){els.front.textContent='No cards'; els.back.textContent=''; els.stats.textContent=''; return}
+  const [es,en] = deck[i];
+  const dir = els.direction.value;
+  const prompt = dir==='es-en'? es : en;
+  const answer = dir==='es-en'? en : es;
+  els.front.textContent = prompt;
+  els.back.textContent = answer;
+  els.stats.textContent = `${i+1}/${deck.length} · ${correct}/${total} correct (${total?Math.round(100*correct/total):100}%)`;
+}
+function flip(){flipped=!flipped;els.card.classList.toggle('flipped',flipped)}
+function ensureFront(){flipped=false;els.card.classList.remove('flipped')}
+function next(){i=(i+1)%deck.length;ensureFront();clearFeedback();render();focusInput()}
+function prev(){i=(i-1+deck.length)%deck.length;ensureFront();clearFeedback();render();focusInput()}
+function shuffle(){for(let j=deck.length-1;j>0;j--){const k=Math.floor(Math.random()*(j+1));[deck[j],deck[k]]=[deck[k],deck[j]]}i=0;ensureFront();clearFeedback();render();focusInput()}
+
+function normalize(s){return s.toLowerCase().replace(/\([^)]*\)/g,'').replace(/[^a-záéíóúñü\- ?/]/g,' ').replace(/\s+/g,' ').trim()}
+function answerSet(text){
+  const raw = text.split(/[;\/]| or |—|–/i).map(t=>normalize(t));
+  const extra = [];
+  raw.forEach(t=>{extra.push(t.replace(/^to\s+/,'').trim())});
+  return new Set([...raw,...extra].filter(Boolean));
+}
+function checkAnswer(){
+  const [es,en] = deck[i];
+  const dir = els.direction.value;
+  const gold = dir==='es-en'? answerSet(en) : answerSet(es);
+  const guess = normalize(els.answer.value);
+  const ok = gold.has(guess);
+  total++; if(ok) correct++; else mistakes.add(keyOf(deck[i]));
+  els.feedback.className = 'feedback ' + (ok? 'ok' : 'bad');
+  els.feedback.innerHTML = ok? '✔ Correct!' : `✖ Not quite. <span class="small">Answer: <strong>${dir==='es-en'? en : es}</strong></span>`;
+  render();
+}
+function clearFeedback(){els.feedback.className='feedback'; els.feedback.textContent=''; els.answer.value=''}
+function resetStats(){correct=0; total=0; render(); clearFeedback()}
+function focusInput(){ if(els.mode.value!=='flip'){ setTimeout(()=>els.answer.focus(),50) } }
+
+function applyMode(){
+  const mode = els.mode.value;
+  if(mode==='mistakes'){
+    const picks = [...mistakes].map(key=>{
+      const [es,en] = key.split('|');
+      return BASE.find(t=>t[0]===es && t[1]===en);
+    }).filter(Boolean);
+    deck = picks.length? picks : [];
+  } else {
+    deck = [...BASE];
+  }
+  i=0; ensureFront(); clearFeedback(); render();
+  els.typeArea.style.display = (mode==='flip')? 'none':'block';
+  q('#flip').classList.toggle('disabled', mode!=='flip');
+  focusInput();
+}
+
+// ---------------- Events ----------------
+q('#flip').onclick=()=>{ if(els.mode.value==='flip') flip() };
+q('#next').onclick=next; q('#prev').onclick=prev; q('#shuffle').onclick=shuffle;
+q('#reset').onclick=resetStats; q('#clearMistakes').onclick=()=>{mistakes.clear(); render()};
+els.mode.onchange=applyMode; els.direction.onchange=()=>{render(); focusInput()};
+q('#check').onclick=checkAnswer; els.answer.addEventListener('keydown',e=>{if(e.key==='Enter') checkAnswer()});
+window.addEventListener('keydown',e=>{ if(e.code==='Space' && els.mode.value==='flip'){e.preventDefault(); flip()} if(e.key==='ArrowRight') next(); if(e.key==='ArrowLeft') prev(); });
+
+
+// ----- iPad touch helpers -----
+(function(){
+  const cardEl = els.card;
+  let startX=0, startY=0, startT=0;
+
+  function onTouchStart(e){
+    const t = e.changedTouches[0];
+    startX = t.clientX; startY = t.clientY; startT = Date.now();
+  }
+  function onTouchEnd(e){
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    const dt = Date.now() - startT;
+    const absX = Math.abs(dx), absY = Math.abs(dy);
+    const SWIPE_DIST = 50;   // px
+    const TAP_DIST = 10;     // px
+    const TAP_TIME = 300;    // ms
+
+    // Horizontal swipe to navigate
+    if(absX > SWIPE_DIST && absX > absY){
+      if(dx < 0) next(); else prev();
+      return;
+    }
+    // Light tap to flip (only in flip mode)
+    if(absX < TAP_DIST && absY < TAP_DIST && dt < TAP_TIME){
+      if(els.mode.value==='flip'){ flip(); }
+    }
+  }
+  cardEl.addEventListener('touchstart', onTouchStart, {passive:true});
+  cardEl.addEventListener('touchend', onTouchEnd, {passive:true});
+
+  // Also make large buttons respond quickly to taps (eliminate 300ms delay on some browsers)
+  const fastTap = (el, handler)=>{
+    el.addEventListener('touchend', (e)=>{ handler(); }, {passive:true});
+  };
+  fastTap(q('#next'), next);
+  fastTap(q('#prev'), prev);
+  fastTap(q('#shuffle'), shuffle);
+  fastTap(q('#flip'), ()=>{ if(els.mode.value==='flip') flip() });
+  fastTap(q('#reset'), resetStats);
+  fastTap(q('#clearMistakes'), ()=>{ mistakes.clear(); render(); });
+
+  // Ensure input focuses on mode change on iPad
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) focusInput(); });
+})();
+
+// ---------------- Init ----------------
+render();
+</script>
+</body>
+</html>
